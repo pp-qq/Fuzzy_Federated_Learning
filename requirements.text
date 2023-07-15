@@ -1,0 +1,7 @@
+torch
+torchvision
+numpy
+tensorboardx
+matplotlib
+scikit-learn
+fuzzy-c-means
