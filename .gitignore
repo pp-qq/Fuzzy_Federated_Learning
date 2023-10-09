@@ -3,4 +3,6 @@ venv/
 poetry.lock
 Cifar10/
 Cifar100/
-src/data/MNIST/
+src/data/
+src/result/**/*.csv
+src/result/**/*.json
