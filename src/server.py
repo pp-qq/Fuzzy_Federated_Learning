@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import random
 import time
@@ -38,6 +39,7 @@ class ServerFedAvg(object):
         self.num_clients = args.num_clients
         self.local_ep = args.local_ep
         self.local_bs = args.local_bs
+        self.pre_train_epochs = args.pre_train_epochs
         self.lr = args.lr
         self.momentum = args.momentum
         self.num_clusters = args.num_clusters
@@ -48,6 +50,8 @@ class ServerFedAvg(object):
         self.model = None
         self.clients = []
         self.uploaded_weights = []
+
+        self.start_time = time.time()  # インスタンス生成時刻
 
     def set_clients(self, clientObj):
         for i in range(self.num_clients):
@@ -73,6 +77,34 @@ class ServerFedAvg(object):
             ).mean(0)
         return global_dict
 
+    def save_stuts(self):
+        """self.clientsのself.train_loss, self.test_loss, self.train_acc, self.test_acc, self.test_macro_f1を保存する"""
+
+        # './result/FedAVG_<yyyymmddss>'のディレクトリを作成
+        result_dir = os.path.join(
+            f'./result/FedAVG_{self.dataset}{time.strftime("%Y-%m-%d-%H-%M", time.localtime(self.start_time))}'
+        )
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+
+        for i, client in enumerate(self.clients):
+            # train_loss, test_loss, train_acc, test_acc, test_macro_f1をカラムとするcsvファイルを作成
+            # 1行目にはカラム名を記載
+            # 2行目以降には各エポックの値を記載
+            # clientのidをファイル名とする
+            with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
+                f.write(
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                )
+                for j in range(self.epochs + self.pre_train_epochs):
+                    f.write(
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                    )
+
+        # argsをconfig.jsonファイルに保存
+        with open(os.path.join(result_dir, "config.json"), "w") as f:
+            json.dump(vars(self.args), f, indent=4)
+
     def train(self):
         # Set seed
         random.seed(self.seed)
@@ -82,6 +114,9 @@ class ServerFedAvg(object):
         torch.cuda.manual_seed_all(self.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+        for i in range(self.num_clients):
+            self.clients[i].pre_train()
 
         for i in range(self.epochs):
             start_time = time.time()
@@ -101,8 +136,12 @@ class ServerFedAvg(object):
                 client.load_model_weights(model_dict=global_dict)
 
             # test
+            print()
             for client in self.clients:
-                client.test()
+                test_loss, test_acc = client.test()
+                print(
+                    f"Client {client.id} test loss: {test_loss:.4f}, test acc: {test_acc:.4f}"
+                )
 
             # save global model
             # self.save_global_model(model=global_dict, path=os.path.join(self.args.save_path, 'global_model.pth'))
@@ -112,6 +151,17 @@ class ServerFedAvg(object):
             print("Time cost: {}".format(end_time - start_time))
             print()
 
+        # # test globalmodel
+        # global_dict = self.aggregate_parameters(
+        #     client_models={client.id: client.model for client in self.clients}
+        # )
+        # for client in self.clients:
+        #     client.load_model_weights(model_dict=global_dict)
+        #     client.test()
+
+        print("Total Time cost:", time.time() - self.start_time)
+        self.save_stuts()
+
 
 class ServerFedKM(object):
     def __init__(self, args):
@@ -120,6 +170,7 @@ class ServerFedKM(object):
         self.num_clients = args.num_clients
         self.local_ep = args.local_ep
         self.local_bs = args.local_bs
+        self.pre_train_epochs = args.pre_train_epochs
         self.lr = args.lr
         self.momentum = args.momentum
         self.num_clusters = args.num_clusters
@@ -133,6 +184,8 @@ class ServerFedKM(object):
         self.clients = []
         self.clusters = [[] for _ in range(self.num_clusters)]
         self.model_clusters = [None for _ in range(self.num_clusters)]
+
+        self.start_time = time.time()  # インスタンス生成時刻
 
     def set_clients(self, clientObj):
         for i in range(self.num_clients):
@@ -158,6 +211,34 @@ class ServerFedKM(object):
             ).mean(0)
         return cluster_dict
 
+    def save_stuts(self):
+        # self.clientsのself.train_loss, self.test_loss, self.train_acc, self.test_acc, self.test_macro_f1を保存する
+
+        # './result/FedAVG_<yyyymmddss>'のディレクトリを作成
+        result_dir = os.path.join(
+            f'./result/FedKM_{self.dataset}{time.strftime("%Y-%m-%d-%H-%M", time.localtime(self.start_time))}'
+        )
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+
+        for i, client in enumerate(self.clients):
+            # train_loss, test_loss, train_acc, test_acc, test_macro_f1をカラムとするcsvファイルを作成
+            # 1行目にはカラム名を記載
+            # 2行目以降には各エポックの値を記載
+            # clientのidをファイル名とする
+            with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
+                f.write(
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                )
+                for j in range(self.epochs + self.pre_train_epochs):
+                    f.write(
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                    )
+
+        # argsをconfig.jsonファイルに保存
+        with open(os.path.join(result_dir, "config.json"), "w") as f:
+            json.dump(vars(self.args), f, indent=4)
+
     def train(self):
         # Set seed
         random.seed(self.seed)
@@ -167,6 +248,9 @@ class ServerFedKM(object):
         torch.cuda.manual_seed_all(self.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+        for i in range(self.num_clients):
+            self.clients[i].pre_train()
 
         for i in range(self.epochs):
             start_time = time.time()
@@ -217,12 +301,32 @@ class ServerFedKM(object):
                     )
 
             # test
+            print()
             for client in self.clients:
-                client.test()
+                test_loss, test_acc = client.test()
+                print(
+                    f"Client {client.id} test loss: {test_loss:.4f}, test acc: {test_acc:.4f}"
+                )
 
             end_time = time.time()
             print("Time cost: {}".format(end_time - start_time))
             print()
+
+        # # test globalmodel
+        # for i in range(self.num_clusters):
+        #     for client in self.clusters[i]:
+        #         self.model_clusters[i] = self.aggregate_parameters(
+        #             client_models={
+        #                 client.id: client.model for client in self.clusters[i]
+        #             }
+        #         )
+        # for i in range(self.num_clusters):
+        #     for client in self.clusters[i]:
+        #         client.load_model_weights(model_dict=self.model_clusters[i])
+        #         client.test()
+
+        print("Total Time cost:", time.time() - self.start_time)
+        self.save_stuts()
 
 
 class ServerFedFCM(object):
@@ -232,6 +336,7 @@ class ServerFedFCM(object):
         self.num_clients = args.num_clients
         self.local_ep = args.local_ep
         self.local_bs = args.local_bs
+        self.pre_train_epochs = args.pre_train_epochs
         self.lr = args.lr
         self.momentum = args.momentum
         self.num_clusters = args.num_clusters
@@ -245,6 +350,8 @@ class ServerFedFCM(object):
         self.clients = []
         self.fcm_labels = []
         self.model_clusters = [None for _ in range(self.num_clusters)]
+
+        self.start_time = time.time()  # インスタンス生成時刻
 
     def set_clients(self, clientObj):
         for i in range(self.num_clients):
@@ -280,6 +387,34 @@ class ServerFedFCM(object):
                         )
             self.model_clusters[i] = cluster_model_dict
 
+    def save_stuts(self):
+        # self.clientsのself.train_loss, self.test_loss, self.train_acc, self.test_acc, self.test_macro_f1を保存する
+
+        # './result/FedAVG_<yyyymmddss>'のディレクトリを作成
+        result_dir = os.path.join(
+            f'./result/FedFCM_{self.dataset}{time.strftime("%Y-%m-%d-%H-%M", time.localtime(self.start_time))}'
+        )
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+
+        for i, client in enumerate(self.clients):
+            # train_loss, test_loss, train_acc, test_acc, test_macro_f1をカラムとするcsvファイルを作成
+            # 1行目にはカラム名を記載
+            # 2行目以降には各エポックの値を記載
+            # clientのidをファイル名とする
+            with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
+                f.write(
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                )
+                for j in range(self.epochs + self.pre_train_epochs):
+                    f.write(
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                    )
+
+        # argsをconfig.jsonファイルに保存
+        with open(os.path.join(result_dir, "config.json"), "w") as f:
+            json.dump(vars(self.args), f, indent=4)
+
     def train(self):
         # Set seed
         random.seed(self.seed)
@@ -289,6 +424,9 @@ class ServerFedFCM(object):
         torch.cuda.manual_seed_all(self.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+        for i in range(self.num_clients):
+            self.clients[i].pre_train()
 
         for i in range(self.epochs):
             start_time = time.time()
@@ -333,9 +471,57 @@ class ServerFedFCM(object):
                 self.clients[i].load_model_weights(model_dict=new_model_dict)
 
             # test
+            print()
             for client in self.clients:
-                client.test()
+                test_loss, test_acc = client.test()
+                print(
+                    f"Client {client.id} test loss: {test_loss:.4f}, test acc: {test_acc:.4f}"
+                )
 
             end_time = time.time()
             print("Time cost: {}".format(end_time - start_time))
             print()
+
+        # #
+        # # test globalmodel
+        # # クラスタリング
+        # w_list = [client.send_model_weights() for client in self.clients]
+        # w_clients_flatten = weights_flatten(w_list)
+        # w_clients_flatten = sklearn.preprocessing.normalize(
+        #     w_clients_flatten, norm="l2", axis=0
+        # )
+
+        # # Fuzzy C-Means
+        # w_clients_comp = PCA(
+        #     n_components=2, random_state=0, svd_solver="randomized"
+        # ).fit_transform(w_clients_flatten)
+        # fcm = FCM(n_clusters=self.num_clusters, random_state=0)
+        # fcm.fit(w_clients_comp)
+        # fcm_labels = fcm.u
+
+        # # aggregate
+        # self.aggregate_parameters(w_list, fcm_labels)
+
+        # # クライアントごとにパラメータを更新
+        # # TODO: FCMで，クライアントごとにパラメータを更新する
+        # # 具体的には，各クラスタに属する確率*各クラスタのパラメータを足し合わせる
+        # for i in range(self.num_clients):
+        #     new_model_dict = {}
+        #     for j in range(self.num_clusters):
+        #         for k in self.model_clusters[j].keys():
+        #             if k in new_model_dict:
+        #                 new_model_dict[k] += (
+        #                     self.model_clusters[j][k] * fcm_labels[i][j]
+        #                 )
+        #             else:
+        #                 new_model_dict[k] = (
+        #                     self.model_clusters[j][k] * fcm_labels[i][j]
+        #                 )
+        #     self.clients[i].load_model_weights(model_dict=new_model_dict)
+
+        # # test
+        # for client in self.clients:
+        #     client.test()
+
+        print("Total Time cost:", time.time() - self.start_time)
+        self.save_stuts()

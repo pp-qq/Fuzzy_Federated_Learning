@@ -4,9 +4,12 @@ from server import ServerFedAvg, ServerFedFCM, ServerFedKM
 
 
 def main(args):
-    # server = ServerFedAvg(args)
-    # server = ServerFedKM(args)
-    server = ServerFedFCM(args)
+    if args.algorithm == "fedavg":
+        server = ServerFedAvg(args)
+    elif args.algorithm == "fedkm":
+        server = ServerFedKM(args)
+    elif args.algorithm == "fedfcm":
+        server = ServerFedFCM(args)
     server.set_clients(Client)
     server.train()
 
