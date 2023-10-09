@@ -5,3 +5,4 @@ tensorboardx
 matplotlib
 scikit-learn
 fuzzy-c-means
+pandas
