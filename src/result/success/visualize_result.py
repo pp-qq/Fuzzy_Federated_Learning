@@ -9,6 +9,7 @@ import pandas as pd
 
 def main():
     # TARGET_DIR = Path("./mnist_random_client20_epoch20/")
+    # TARGET_DIR = Path("./mnist_prob_client20_epoch20/")
     TARGET_DIR = Path("./mnist_multi_client20_epoch20/")
 
     # TARGET_DIR配下のディレクトリを取得
@@ -28,14 +29,13 @@ def main():
         # csvのカラムはtrain_loss,test_loss,train_acc,test_acc,test_macro_f1
         for csv_path in csv_paths:
             df = pd.read_csv(csv_path)
-            print(csv_path, len(df))
             plt.plot(
                 df["test_acc"].values,
                 label=csv_path.split("/")[-1].split(".")[0],
             )
 
         plt.title(f"{alg_dir.name.split('_')[0]}")
-        plt.legend()
+        plt.legend(loc="lower right")
 
     plt.tight_layout()
     plt.savefig(f"./{TARGET_DIR.name}/test_acc.png")
