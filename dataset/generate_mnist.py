@@ -16,7 +16,7 @@ from sklearn.model_selection import train_test_split
 num_clients = 20
 num_classes = 10
 num_clusters = 5
-partission_method = "probabilistic"  # "multi-class", "probabilistic", "random"
+partission_method = "multi-class"  # "multi-class", "probabilistic", "random"
 
 # this parameter is used only when partission_method is "multi-class"
 class_per_client = 3
@@ -38,6 +38,8 @@ def separate_data(
 
     # Separate data by class
     if partition_method == "multi-class":
+        data_num_per_client = 3000
+
         cluster_results = {
             "clusters": [[] for _ in range(num_clusters)],
             "labels": [[] for _ in range(num_clusters)],
@@ -75,8 +77,11 @@ def separate_data(
 
         for i in range(len(labels)):
             for cluster in range(num_clusters):
-                if labels[i] in cluster_results["labels"][cluster]:
-                    for client in cluster_results["clusters"][cluster]:
+                for client in cluster_results["clusters"][cluster]:
+                    if (
+                        labels[i] in cluster_results["labels"][cluster]
+                        and len(X[client]) < data_num_per_client
+                    ):
                         X[client].append(images[i])
                         y[client].append(labels[i])
 
@@ -149,9 +154,9 @@ def separate_data(
             ],
         }
 
-        client_label_probabilities = np.array(
-            client_label_probabilities
-        ).astype(np.float64)
+        client_label_probabilities = np.array(client_label_probabilities).astype(
+            np.float64
+        )
         for i in range(len(client_label_probabilities)):
             sum = np.sum(client_label_probabilities[i])
             client_label_probabilities[i] = client_label_probabilities[i] / sum
