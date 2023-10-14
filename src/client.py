@@ -37,9 +37,7 @@ class Client(object):
 
         self.test_macro_f1 = []
 
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # if torch.backends.mps.is_available() and self.device != "cuda:0":
         #     self.device = torch.device("mps")
 
@@ -76,7 +74,7 @@ class Client(object):
     def load_train_data(self):
         if self.dataset == "mnist_multi":
             train_data_pkl = os.path.join(
-                "data", "MNIST_multi", "train", f"train{self.id}.pkl"
+                "data", "MNIST_multi_2", "train", f"train{self.id}.pkl"
             )
         elif self.dataset == "mnist_random":
             train_data_pkl = os.path.join(
@@ -179,6 +177,7 @@ class Client(object):
         self.model.eval()
         test_loss = 0
         acc = 0
+        target_list = []
         pred_list = []
         with torch.no_grad():
             for data, target in self.test_loader:
@@ -186,14 +185,15 @@ class Client(object):
                 output = self.model(data)
                 test_loss += self.criterion(output, target).item()
                 pred = output.argmax(dim=1, keepdim=True)
-                pred_list.append(pred.cpu().numpy())
+                pred_list.append(pred.cpu().numpy()[0])
+                target_list.append(target.cpu().numpy())
                 acc += pred.eq(target.view_as(pred)).sum().item()
         self.test_loss.append(test_loss / len(self.test_loader))
         self.test_acc.append(acc / len(self.test_loader))
 
         pred_list = np.concatenate(pred_list)
         macro_f1 = f1_score(
-            self.test_loader.dataset.tensors[1].cpu().numpy(),
+            target_list,
             pred_list,
             average="macro",
         )
