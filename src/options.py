@@ -13,14 +13,12 @@ def args_parser():
     )
 
     # Federated Learning arguments
+    parser.add_argument("--epochs", type=int, default=20, help="rounds of training")
     parser.add_argument(
-        "--epochs", type=int, default=20, help="rounds of training"
+        "--num_clients", type=int, default=2, help="number of clients: K"
     )
     parser.add_argument(
-        "--num_clients", type=int, default=20, help="number of clients: K"
-    )
-    parser.add_argument(
-        "--local_ep", type=int, default=3, help="the number of local epochs: E"
+        "--local_ep", type=int, default=2, help="the number of local epochs: E"
     )
     parser.add_argument(
         "--pre_train_epochs",
@@ -28,12 +26,8 @@ def args_parser():
         default=0,
         help="the number of local pre-epochs: E",
     )
-    parser.add_argument(
-        "--local_bs", type=int, default=10, help="local batch size: B"
-    )
-    parser.add_argument(
-        "--lr", type=float, default=0.001, help="learning rate"
-    )
+    parser.add_argument("--local_bs", type=int, default=10, help="local batch size: B")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument(
         "--momentum",
         type=float,
@@ -47,17 +41,13 @@ def args_parser():
     )
 
     # Model arguments
-    parser.add_argument(
-        "--model_name", type=str, default="lenet", help="model name"
-    )
+    parser.add_argument("--model_name", type=str, default="lenet", help="model name")
 
     # Other arguments
     parser.add_argument(
-        "--dataset", type=str, default="mnist_multi", help="name of dataset"
+        "--dataset", type=str, default="cifar10_random", help="name of dataset"
     )
-    parser.add_argument(
-        "--seed", type=int, default=1, help="random seed (default: 1)"
-    )
+    parser.add_argument("--seed", type=int, default=1, help="random seed (default: 1)")
 
     args = parser.parse_args()
     return args
