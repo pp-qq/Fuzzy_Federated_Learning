@@ -75,15 +75,27 @@ def separate_data(
             # クライアントを順番にクラスターに割り当てる
             cluster_results["clusters"][client % num_clusters].append(client)
 
+        # for i in range(len(labels)):
+        #     for cluster in range(num_clusters):
+        #         for client in cluster_results["clusters"][cluster]:
+        #             if (
+        #                 labels[i] in cluster_results["labels"][cluster]
+        #                 and len(X[client]) < data_num_per_client
+        #             ):
+        #                 X[client].append(images[i])
+        #                 y[client].append(labels[i])
+
+        label_idxs = [[] for _ in range(num_classes)]
         for i in range(len(labels)):
-            for cluster in range(num_clusters):
-                for client in cluster_results["clusters"][cluster]:
-                    if (
-                        labels[i] in cluster_results["labels"][cluster]
-                        and len(X[client]) < data_num_per_client
-                    ):
-                        X[client].append(images[i])
-                        y[client].append(labels[i])
+            label_idxs[labels[i]].append(i)
+        for client in range(num_clients):
+            for i in range(data_num_per_client):
+                # randomly choose a label from cluster_results["labels"]
+                label = random.choice(cluster_results["labels"][client % num_clusters])
+                # randomly choose a data from label_idxs
+                index = random.choice(label_idxs[label])
+                X[client].append(images[index])
+                y[client].append(labels[index])
 
         print("X", X[0][0].shape)
         for i in range(len(X)):
