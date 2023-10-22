@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nets import LeNet_MNIST
+from nets import LeNet_Cifar10, LeNet_MNIST
 from sklearn.metrics import f1_score
 
 random.seed(1)
@@ -58,6 +58,9 @@ class Client(object):
             or self.dataset == "mnist_prob"
         ):
             self.model = LeNet_MNIST()
+        elif self.model_name == "lenet" and self.dataset == "cifar10_random":
+            self.model = LeNet_Cifar10()
+
         self.model.to(self.device)
         self.optimizer = torch.optim.SGD(
             self.model.parameters(),
@@ -74,7 +77,7 @@ class Client(object):
     def load_train_data(self):
         if self.dataset == "mnist_multi":
             train_data_pkl = os.path.join(
-                "data", "MNIST_multi_2", "train", f"train{self.id}.pkl"
+                "data", "MNIST_multi_3", "train", f"train{self.id}.pkl"
             )
         elif self.dataset == "mnist_random":
             train_data_pkl = os.path.join(
@@ -83,6 +86,10 @@ class Client(object):
         elif self.dataset == "mnist_prob":
             train_data_pkl = os.path.join(
                 "data", "MNIST_prob_3", "train", f"train{self.id}.pkl"
+            )
+        elif self.dataset == "cifar10_random":
+            train_data_pkl = os.path.join(
+                "data", "Cifar10_random", "train", f"train{self.id}.pkl"
             )
 
         train_data = pickle.load(open(train_data_pkl, "rb"))
@@ -108,6 +115,10 @@ class Client(object):
         elif self.dataset == "mnist_prob":
             test_data_pkl = os.path.join(
                 "data", "MNIST_prob_3", "test", f"test{self.id}.pkl"
+            )
+        elif self.dataset == "cifar10_random":
+            test_data_pkl = os.path.join(
+                "data", "Cifar10_random", "test", f"test{self.id}.pkl"
             )
 
         test_data = pickle.load(open(test_data_pkl, "rb"))
