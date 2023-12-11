@@ -35,7 +35,12 @@ class Client(object):
         self.test_acc = []
         self.train_time = []
 
+        self.g_test_acc = []
+        self.g_test_loss = []
+        self.g_test_macro_f1 = []
+
         self.test_macro_f1 = []
+        self.test_w_macro_f1 = []
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # if torch.backends.mps.is_available() and self.device != "cuda:0":
@@ -44,9 +49,11 @@ class Client(object):
         self.model = None
         self.train_loader = None
         self.test_loader = None
+        self.g_test_loader = None
         self.load_model()
         self.load_train_data()
         self.load_test_data()
+        self.load_global_test_data()
 
     def save_model(self):
         pass
@@ -58,7 +65,11 @@ class Client(object):
             or self.dataset == "mnist_prob"
         ):
             self.model = LeNet_MNIST()
-        elif self.model_name == "lenet" and self.dataset == "cifar10_random":
+        elif self.model_name == "lenet" and (
+            self.dataset == "cifar10_random"
+            or self.dataset == "cifar10_prob"
+            or self.dataset == "cifar10_multi"
+        ):
             self.model = LeNet_Cifar10()
 
         self.model.to(self.device)
@@ -77,7 +88,7 @@ class Client(object):
     def load_train_data(self):
         if self.dataset == "mnist_multi":
             train_data_pkl = os.path.join(
-                "data", "MNIST_multi_3", "train", f"train{self.id}.pkl"
+                "data", "MNIST_multi_4", "train", f"train{self.id}.pkl"
             )
         elif self.dataset == "mnist_random":
             train_data_pkl = os.path.join(
@@ -90,6 +101,14 @@ class Client(object):
         elif self.dataset == "cifar10_random":
             train_data_pkl = os.path.join(
                 "data", "Cifar10_random", "train", f"train{self.id}.pkl"
+            )
+        elif self.dataset == "cifar10_prob":
+            train_data_pkl = os.path.join(
+                "data", "Cifar10_prob", "train", f"train{self.id}.pkl"
+            )
+        elif self.dataset == "cifar10_multi":
+            train_data_pkl = os.path.join(
+                "data", "Cifar10_multi", "train", f"train{self.id}.pkl"
             )
 
         train_data = pickle.load(open(train_data_pkl, "rb"))
@@ -106,7 +125,7 @@ class Client(object):
     def load_test_data(self):
         if self.dataset == "mnist_multi":
             test_data_pkl = os.path.join(
-                "data", "MNIST_multi", "test", f"test{self.id}.pkl"
+                "data", "MNIST_multi_4", "test", f"test{self.id}.pkl"
             )
         elif self.dataset == "mnist_random":
             test_data_pkl = os.path.join(
@@ -120,6 +139,14 @@ class Client(object):
             test_data_pkl = os.path.join(
                 "data", "Cifar10_random", "test", f"test{self.id}.pkl"
             )
+        elif self.dataset == "cifar10_prob":
+            test_data_pkl = os.path.join(
+                "data", "Cifar10_prob", "test", f"test{self.id}.pkl"
+            )
+        elif self.dataset == "cifar10_multi":
+            test_data_pkl = os.path.join(
+                "data", "Cifar10_multi", "test", f"test{self.id}.pkl"
+            )
 
         test_data = pickle.load(open(test_data_pkl, "rb"))
         test_x, test_y = test_data
@@ -131,6 +158,27 @@ class Client(object):
             shuffle=True,
         )
         self.test_loader = test_loader
+
+    def load_global_test_data(self):
+        if self.dataset.startswith("mnist"):
+            g_test_data_pkl = os.path.join(
+                "data", "MNIST_g_test", "g_test", "g_test.pkl"
+            )
+        elif self.dataset.startswith("cifar10"):
+            g_test_data_pkl = os.path.join(
+                "data", "Cifar10_g_test", "g_test", "g_test.pkl"
+            )
+
+        g_test_data = pickle.load(open(g_test_data_pkl, "rb"))
+        g_test_x, g_test_y = g_test_data
+        g_test_x = torch.from_numpy(g_test_x).float()
+        g_test_y = torch.from_numpy(g_test_y).long()
+        g_test_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(g_test_x, g_test_y),
+            batch_size=1,
+            shuffle=True,
+        )
+        self.g_test_loader = g_test_loader
 
     def pre_train(self):
         device = self.device
@@ -209,13 +257,43 @@ class Client(object):
             average="macro",
         )
         self.test_macro_f1.append(macro_f1)
+        w_macro_f1 = f1_score(target_list, pred_list, average="weighted")
+        self.test_w_macro_f1.append(w_macro_f1)
 
         return test_loss / len(self.test_loader), acc / len(self.test_loader)
 
-        # print(
-        #     f"Client {self.id} test loss {test_loss / len(self.test_loader)}"
-        # )
-        # print(f"Client {self.id} test acc {acc / len(self.test_loader)}")
+    def global_test(self):
+        device = self.device
+        self.model.eval()
+        test_loss = 0
+        acc = 0
+        target_list = []
+        pred_list = []
+        with torch.no_grad():
+            for data, target in self.g_test_loader:
+                data, target = data.to(device), target.to(device)
+                output = self.model(data)
+                test_loss += self.criterion(output, target).item()
+                pred = output.argmax(dim=1, keepdim=True)
+                pred_list.append(pred.cpu().numpy()[0])
+                target_list.append(target.cpu().numpy())
+                acc += pred.eq(target.view_as(pred)).sum().item()
+        self.g_test_loss.append(test_loss / len(self.g_test_loader))
+        self.g_test_acc.append(acc / len(self.g_test_loader))
+
+        pred_list = np.concatenate(pred_list)
+        macro_f1 = f1_score(
+            target_list,
+            pred_list,
+            average="macro",
+        )
+        self.g_test_macro_f1.append(macro_f1)
+
+        return (
+            test_loss / len(self.g_test_loader),
+            acc / len(self.g_test_loader),
+            macro_f1,
+        )
 
 
 # class ClientKM(object):
