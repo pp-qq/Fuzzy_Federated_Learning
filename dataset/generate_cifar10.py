@@ -17,7 +17,8 @@ num_clients = 20
 num_classes = 10
 num_clusters = 5
 class_per_client = 3
-partission_method = "random"  # random, multi, prob
+partission_method = "multi"  # random, multi, prob
+data_num_per_client = 3000
 
 dir_path = Path("Cifar10/")
 
@@ -33,8 +34,6 @@ def separate_data(
     X = [[] for _ in range(num_clients)]
     y = [[] for _ in range(num_clients)]
 
-    data_num_per_client = 5000
-
     if partission_method == "random":
         for i in range(num_clients):
             for _ in range(data_num_per_client):
@@ -44,10 +43,85 @@ def separate_data(
         cluster_results = None
 
     elif partission_method == "multi":
-        pass
+        cluster_results = {
+            "clusters": [[] for _ in range(num_clusters)],
+            "labels": [[] for _ in range(num_clusters)],
+        }
+
+        classes_per_client = [[] for _ in range(num_clients)]
+
+        i = 0
+        for client in range(num_clients):
+            classes_per_client[client] = [
+                i % num_classes,
+                (i + 1) % num_classes,
+                (i + 2) % num_classes,
+            ]
+            i += 3
+            i %= num_classes
+
+        print(classes_per_client)
+
+        # for i in range(num_clients):
+        #     cluster_results["clusters"][i % num_clusters].append(i)
+
+        indices_by_class = [[] for _ in range(num_classes)]
+
+        for i in range(len(labels)):
+            indices_by_class[labels[i]].append(i)
+
+        for client_id in range(num_clients):
+            for _ in range(data_num_per_client):
+                label = np.random.choice(classes_per_client[client_id])
+                idx = np.random.choice(indices_by_class[label])
+                X[client_id].append(images[idx])
+                y[client_id].append(labels[idx])
 
     elif partission_method == "prob":
-        pass
+        client_label_probabilities = [
+            [1, 2, 3, 4, 3, 2, 1, 1, 1, 1],
+            [1, 2, 3, 4, 3, 2, 1, 1, 1, 1],
+            [1, 1, 2, 3, 4, 3, 2, 1, 1, 1],
+            [1, 1, 2, 3, 4, 3, 2, 1, 1, 1],
+            [1, 1, 1, 2, 3, 4, 3, 2, 1, 1],
+            [1, 1, 1, 2, 3, 4, 3, 2, 1, 1],
+            [1, 1, 1, 1, 2, 3, 4, 3, 2, 1],
+            [1, 1, 1, 1, 2, 3, 4, 3, 2, 1],
+            [1, 1, 1, 1, 1, 2, 3, 4, 3, 2],
+            [1, 1, 1, 1, 1, 2, 3, 4, 3, 2],
+            [2, 1, 1, 1, 1, 1, 2, 3, 4, 3],
+            [2, 1, 1, 1, 1, 1, 2, 3, 4, 3],
+            [3, 2, 1, 1, 1, 1, 1, 2, 3, 4],
+            [3, 2, 1, 1, 1, 1, 1, 2, 3, 4],
+            [4, 3, 2, 1, 1, 1, 1, 1, 2, 3],
+            [4, 3, 2, 1, 1, 1, 1, 1, 2, 3],
+            [3, 4, 3, 2, 1, 1, 1, 1, 1, 2],
+            [3, 4, 3, 2, 1, 1, 1, 1, 1, 2],
+            [2, 3, 4, 3, 2, 1, 1, 1, 1, 1],
+            [2, 3, 4, 3, 2, 1, 1, 1, 1, 1],
+        ]
+        client_label_probabilities = np.array(client_label_probabilities).astype(
+            np.float32
+        )
+        client_label_probabilities /= np.sum(client_label_probabilities, axis=1)[
+            :, np.newaxis
+        ]
+        print(client_label_probabilities)
+
+        indices_by_class = [[] for _ in range(num_classes)]
+
+        for i in range(len(labels)):
+            indices_by_class[labels[i]].append(i)
+
+        for client_id in range(num_clients):
+            for _ in range(data_num_per_client):
+                label = np.random.choice(
+                    num_classes, p=client_label_probabilities[client_id]
+                )
+                idx = np.random.choice(indices_by_class[label])
+                X[client_id].append(images[idx])
+                y[client_id].append(labels[idx])
+        cluster_results = None
 
     for i in range(num_clients):
         X[i] = np.array(X[i])

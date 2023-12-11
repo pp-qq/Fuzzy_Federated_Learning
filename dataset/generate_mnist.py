@@ -63,6 +63,7 @@ def separate_data(
             ]
             i += 3
             i %= num_classes
+        print(cluster_results["labels"])
 
         for client in range(num_clients):
             # # クライアントごとにクラスターをランダムに決める
@@ -73,7 +74,8 @@ def separate_data(
             # cluster_results["clusters"][client % num_clusters].append(client)
 
             # クライアントを順番にクラスターに割り当てる
-            cluster_results["clusters"][client % num_clusters].append(client)
+            cluster_results["clusters"][client // (num_clusters - 1)].append(client)
+        print(cluster_results["clusters"])
 
         # for i in range(len(labels)):
         #     for cluster in range(num_clusters):
@@ -91,15 +93,17 @@ def separate_data(
         for client in range(num_clients):
             for i in range(data_num_per_client):
                 # randomly choose a label from cluster_results["labels"]
-                label = random.choice(cluster_results["labels"][client % num_clusters])
+                label = random.choice(
+                    cluster_results["labels"][client // (num_clusters - 1)]
+                )
                 # randomly choose a data from label_idxs
                 index = random.choice(label_idxs[label])
                 X[client].append(images[index])
                 y[client].append(labels[index])
 
         print("X", X[0][0].shape)
-        for i in range(len(X)):
-            print(len(X[i]))
+        # for i in range(len(X)):
+        #     print(len(X[i]))
         # return X, y, cluster_results
 
     # Separate data by cluster
