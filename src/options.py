@@ -15,10 +15,10 @@ def args_parser():
     # Federated Learning arguments
     parser.add_argument("--epochs", type=int, default=20, help="rounds of training")
     parser.add_argument(
-        "--num_clients", type=int, default=2, help="number of clients: K"
+        "--num_clients", type=int, default=3, help="number of clients: K"
     )
     parser.add_argument(
-        "--local_ep", type=int, default=2, help="the number of local epochs: E"
+        "--local_ep", type=int, default=3, help="the number of local epochs: E"
     )
     parser.add_argument(
         "--pre_train_epochs",
@@ -39,13 +39,32 @@ def args_parser():
     parser.add_argument(
         "--num_clusters", type=int, default=5, help="number of clusters: C"
     )
+    parser.add_argument(
+        "--n_comp", type=int, default=2, help="number of n_comp of PCA: n"
+    )
+    parser.add_argument(
+        "--cluster_based_on",
+        "-c",
+        type=str,
+        default="weight",
+        help="clusterize based on: hidden, weight",
+    )
+
+    # For FedFCM arguments
+    parser.add_argument(
+        "--fuzzy_ratio",
+        "-f",
+        type=float,
+        default=0.5,
+        help="ratio of fuzzy aggregation",
+    )
 
     # Model arguments
     parser.add_argument("--model_name", type=str, default="lenet", help="model name")
 
     # Other arguments
     parser.add_argument(
-        "--dataset", type=str, default="cifar10_random", help="name of dataset"
+        "--dataset", type=str, default="mnist_multi", help="name of dataset"
     )
     parser.add_argument("--seed", type=int, default=1, help="random seed (default: 1)")
 
