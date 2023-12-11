@@ -94,11 +94,11 @@ class ServerFedAvg(object):
             # clientのidをファイル名とする
             with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
                 f.write(
-                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1,test_w_macro_f1,g_test_acc,g_test_loss,g_test_macro_f1\n"
                 )
                 for j in range(self.epochs + self.pre_train_epochs):
                     f.write(
-                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]},{client.test_w_macro_f1[j]},{client.g_test_acc[j]},{client.g_test_loss[j]},{client.g_test_macro_f1[j]}\n"
                     )
 
         # argsをconfig.jsonファイルに保存
@@ -127,9 +127,7 @@ class ServerFedAvg(object):
 
             # aggregate
             global_dict = self.aggregate_parameters(
-                client_models={
-                    client.id: client.model for client in self.clients
-                }
+                client_models={client.id: client.model for client in self.clients}
             )
             # update global model
             for client in self.clients:
@@ -143,9 +141,14 @@ class ServerFedAvg(object):
                     f"Client {client.id} test loss: {test_loss:.4f}, test acc: {test_acc:.4f}"
                 )
 
-            # save global model
-            # self.save_global_model(model=global_dict, path=os.path.join(self.args.save_path, 'global_model.pth'))
-            # print("Global model saved.")
+            # global test
+            print()
+            for client in self.clients:
+                g_test_loss, g_test_acc, g_test_macro_f1 = client.global_test()
+                print(
+                    f"Client {client.id} global test loss: {g_test_loss:.4f}, global test acc: {g_test_acc:.4f}, global test macro f1: {g_test_macro_f1:.4f}"
+                )
+                print()
 
             end_time = time.time()
             print("Time cost: {}".format(end_time - start_time))
@@ -177,6 +180,9 @@ class ServerFedKM(object):
         self.model_name = args.model_name
         self.dataset = args.dataset
         self.seed = args.seed
+
+        self.n_comp = args.n_comp
+        self.cluster_based_on = args.cluster_based_on
 
         self.num_clusters = args.num_clusters
 
@@ -228,11 +234,11 @@ class ServerFedKM(object):
             # clientのidをファイル名とする
             with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
                 f.write(
-                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1,test_w_macro_f1,g_test_acc,g_test_loss,g_test_macro_f1\n"
                 )
                 for j in range(self.epochs + self.pre_train_epochs):
                     f.write(
-                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]},{client.test_w_macro_f1[j]},{client.g_test_acc[j]},{client.g_test_loss[j]},{client.g_test_macro_f1[j]}\n"
                     )
 
         # argsをconfig.jsonファイルに保存
@@ -261,23 +267,41 @@ class ServerFedKM(object):
 
             # クラスタリング
             w_list = [client.model.state_dict() for client in self.clients]
-            w_clients_flatten = weights_flatten(w_list)
-            w_clients_flatten = sklearn.preprocessing.normalize(
-                w_clients_flatten, norm="l2", axis=0
-            )
+            if self.cluster_based_on == "weight":
+                w_clients_flatten = weights_flatten(w_list)
+                w_clients_flatten = sklearn.preprocessing.normalize(
+                    w_clients_flatten, norm="l2", axis=0
+                )
 
-            # k-means
-            kmeans = KMeans(n_clusters=self.num_clusters, random_state=0).fit(
-                w_clients_flatten
-            )
-            w_clients_comp = PCA(
-                n_components=2, random_state=0, svd_solver="randomized"
-            ).fit_transform(w_clients_flatten)
-            kmeans = KMeans(n_clusters=self.num_clusters, random_state=0).fit(
-                w_clients_comp
-            )
-            for i in range(len(kmeans.labels_)):
-                self.clusters[kmeans.labels_[i]].append(self.clients[i])
+                # k-means
+                w_clients_comp = PCA(
+                    n_components=self.n_comp, random_state=0, svd_solver="randomized"
+                ).fit_transform(w_clients_flatten)
+                kmeans = KMeans(n_clusters=self.num_clusters, random_state=0).fit(
+                    w_clients_comp
+                )
+                for i in range(len(kmeans.labels_)):
+                    self.clusters[kmeans.labels_[i]].append(self.clients[i])
+
+            elif self.cluster_based_on == "hidden":
+                w_hidden_list = []
+                for i in range(len(w_list)):
+                    w_hidden_list.append(w_list[i]["fc1.weight"])
+                w_hidden_list = np.array(w_hidden_list)
+                w_hidden_list = w_hidden_list.reshape(w_hidden_list.shape[0], -1)
+                w_hidden_list = sklearn.preprocessing.normalize(
+                    w_hidden_list, norm="l2", axis=0
+                )
+
+                # k-means
+                w_hidden_comp = PCA(
+                    n_components=self.n_comp, random_state=0, svd_solver="randomized"
+                ).fit_transform(w_hidden_list)
+                kmeans = KMeans(n_clusters=self.num_clusters, random_state=0).fit(
+                    w_hidden_comp
+                )
+                for i in range(len(kmeans.labels_)):
+                    self.clusters[kmeans.labels_[i]].append(self.clients[i])
 
             # TODO: クラスタを再割り当てする
             # self.clustersを構成すれば良い
@@ -288,17 +312,14 @@ class ServerFedKM(object):
                 for client in self.clusters[i]:
                     self.model_clusters[i] = self.aggregate_parameters(
                         client_models={
-                            client.id: client.model
-                            for client in self.clusters[i]
+                            client.id: client.model for client in self.clusters[i]
                         }
                     )
 
             # クラスタごとにパラメータを更新
             for i in range(self.num_clusters):
                 for client in self.clusters[i]:
-                    client.load_model_weights(
-                        model_dict=self.model_clusters[i]
-                    )
+                    client.load_model_weights(model_dict=self.model_clusters[i])
 
             # test
             print()
@@ -311,6 +332,15 @@ class ServerFedKM(object):
             end_time = time.time()
             print("Time cost: {}".format(end_time - start_time))
             print()
+
+            # global test
+            print()
+            for client in self.clients:
+                g_test_loss, g_test_acc, g_test_macro_f1 = client.global_test()
+                print(
+                    f"Client {client.id} global test loss: {g_test_loss:.4f}, global test acc: {g_test_acc:.4f}, global test macro f1: {g_test_macro_f1:.4f}"
+                )
+                print()
 
         # # test globalmodel
         # for i in range(self.num_clusters):
@@ -345,6 +375,8 @@ class ServerFedFCM(object):
         self.seed = args.seed
 
         self.num_clusters = args.num_clusters
+        self.n_comp = args.n_comp
+        self.cluster_based_on = args.cluster_based_on
 
         self.model = None
         self.clients = []
@@ -398,17 +430,17 @@ class ServerFedFCM(object):
             os.makedirs(result_dir)
 
         for i, client in enumerate(self.clients):
-            # train_loss, test_loss, train_acc, test_acc, test_macro_f1をカラムとするcsvファイルを作成
+            # train_loss, test_loss, train_acc, test_acc, test_macro_f1, g_test_acc, g_test_loss, g_test_macro_f1をカラムとするcsvファイルを作成
             # 1行目にはカラム名を記載
             # 2行目以降には各エポックの値を記載
             # clientのidをファイル名とする
             with open(os.path.join(result_dir, f"{client.id}.csv"), "w") as f:
                 f.write(
-                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1\n"
+                    "train_loss,test_loss,train_acc,test_acc,test_macro_f1,test_w_macro_f1,g_test_acc,g_test_loss,g_test_macro_f1\n"
                 )
                 for j in range(self.epochs + self.pre_train_epochs):
                     f.write(
-                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]}\n"
+                        f"{client.train_loss[j]},{client.test_loss[j]},{client.train_acc[j]},{client.test_acc[j]},{client.test_macro_f1[j]},{client.test_w_macro_f1[j]},{client.g_test_acc[j]},{client.g_test_loss[j]},{client.g_test_macro_f1[j]}\n"
                     )
 
         # argsをconfig.jsonファイルに保存
@@ -437,18 +469,37 @@ class ServerFedFCM(object):
 
             # クラスタリング
             w_list = [client.send_model_weights() for client in self.clients]
-            w_clients_flatten = weights_flatten(w_list)
-            w_clients_flatten = sklearn.preprocessing.normalize(
-                w_clients_flatten, norm="l2", axis=0
-            )
+            if self.cluster_based_on == "weight":
+                w_clients_flatten = weights_flatten(w_list)
+                w_clients_flatten = sklearn.preprocessing.normalize(
+                    w_clients_flatten, norm="l2", axis=0
+                )
 
-            # Fuzzy C-Means
-            w_clients_comp = PCA(
-                n_components=2, random_state=0, svd_solver="randomized"
-            ).fit_transform(w_clients_flatten)
-            fcm = FCM(n_clusters=self.num_clusters, random_state=0)
-            fcm.fit(w_clients_comp)
-            fcm_labels = fcm.u
+                # Fuzzy C-Means
+                w_clients_comp = PCA(
+                    n_components=self.n_comp, random_state=0, svd_solver="randomized"
+                ).fit_transform(w_clients_flatten)
+                fcm = FCM(n_clusters=self.num_clusters, random_state=0)
+                fcm.fit(w_clients_comp)
+                fcm_labels = fcm.u
+
+            elif self.cluster_based_on == "hidden":
+                w_hidden_list = []
+                for i in range(len(w_list)):
+                    w_hidden_list.append(w_list[i]["fc1.weight"])
+                w_hidden_list = np.array(w_hidden_list)
+                w_hidden_list = w_hidden_list.reshape(w_hidden_list.shape[0], -1)
+                w_hidden_list = sklearn.preprocessing.normalize(
+                    w_hidden_list, norm="l2", axis=0
+                )
+
+                # Fuzzy C-Means
+                w_hidden_comp = PCA(
+                    n_components=self.n_comp, random_state=0, svd_solver="randomized"
+                ).fit_transform(w_hidden_list)
+                fcm = FCM(n_clusters=self.num_clusters, random_state=0)
+                fcm.fit(w_hidden_comp)
+                fcm_labels = fcm.u
 
             # aggregate
             self.aggregate_parameters(w_list, fcm_labels)
@@ -481,6 +532,15 @@ class ServerFedFCM(object):
             end_time = time.time()
             print("Time cost: {}".format(end_time - start_time))
             print()
+
+            # global test
+            print()
+            for client in self.clients:
+                g_test_loss, g_test_acc, g_test_macro_f1 = client.global_test()
+                print(
+                    f"Client {client.id} global test loss: {g_test_loss:.4f}, global test acc: {g_test_acc:.4f}, global test macro f1: {g_test_macro_f1:.4f}"
+                )
+                print()
 
         # #
         # # test globalmodel
