@@ -15,7 +15,7 @@ def args_parser():
     # Federated Learning arguments
     parser.add_argument("--epochs", type=int, default=20, help="rounds of training")
     parser.add_argument(
-        "--num_clients", type=int, default=3, help="number of clients: K"
+        "--num_clients", type=int, default=20, help="number of clients: K"
     )
     parser.add_argument(
         "--local_ep", type=int, default=3, help="the number of local epochs: E"
@@ -50,13 +50,31 @@ def args_parser():
         help="clusterize based on: hidden, weight",
     )
 
-    # For FedFCM arguments
+    # FedFCM arguments
+    parser.add_argument(
+        "--degree_of_fuzziness",
+        "-m",
+        type=float,
+        default=2.0,
+        help="degree of fuzziness, m > 1",
+    )
     parser.add_argument(
         "--fuzzy_ratio",
         "-f",
         type=float,
-        default=0.5,
+        default=1.0,
         help="ratio of fuzzy aggregation",
+    )
+    parser.add_argument(
+        "--fuzzy_agg_type",
+        type=int,
+        default=1,
+        help="type of fuzzy aggregation",
+    )
+    parser.add_argument(
+        "--fuzzy_add_global_model_epoch",
+        type=int,
+        default=3,
     )
 
     # Model arguments
