@@ -15,7 +15,7 @@ from sklearn.model_selection import train_test_split
 
 dir_path = Path("MNIST_g_test/")
 random.seed(1)
-test_set_size = 10000
+test_set_size = 3000
 
 
 def main():
@@ -61,6 +61,13 @@ def main():
 
     # Partition data
     X, y = dataset_image, dataset_label
+
+    # データ数をランダムな3000個にする
+    random_index = random.sample(range(len(X)), test_set_size)
+    X = X[random_index]
+    y = y[random_index]
+
+    print(X.shape)
 
     X_g_test = np.array(X)
     y_g_test = np.array(y)
