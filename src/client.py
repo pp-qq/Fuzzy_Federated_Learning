@@ -42,9 +42,10 @@ class Client(object):
         self.test_macro_f1 = []
         self.test_w_macro_f1 = []
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # if torch.backends.mps.is_available() and self.device != "cuda:0":
         #     self.device = torch.device("mps")
+        self.device = torch.device("cpu")
 
         self.model = None
         self.train_loader = None
@@ -96,7 +97,7 @@ class Client(object):
             )
         elif self.dataset == "mnist_prob":
             train_data_pkl = os.path.join(
-                "data", "MNIST_prob_3", "train", f"train{self.id}.pkl"
+                "data", "MNIST_prob_2", "train", f"train{self.id}.pkl"
             )
         elif self.dataset == "cifar10_random":
             train_data_pkl = os.path.join(
@@ -133,7 +134,7 @@ class Client(object):
             )
         elif self.dataset == "mnist_prob":
             test_data_pkl = os.path.join(
-                "data", "MNIST_prob_3", "test", f"test{self.id}.pkl"
+                "data", "MNIST_prob_2", "test", f"test{self.id}.pkl"
             )
         elif self.dataset == "cifar10_random":
             test_data_pkl = os.path.join(
