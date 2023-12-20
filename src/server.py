@@ -154,14 +154,6 @@ class ServerFedAvg(object):
             print("Time cost: {}".format(end_time - start_time))
             print()
 
-        # # test globalmodel
-        # global_dict = self.aggregate_parameters(
-        #     client_models={client.id: client.model for client in self.clients}
-        # )
-        # for client in self.clients:
-        #     client.load_model_weights(model_dict=global_dict)
-        #     client.test()
-
         print("Total Time cost:", time.time() - self.start_time)
         self.save_stuts()
 
@@ -342,19 +334,6 @@ class ServerFedKM(object):
                 )
                 print()
 
-        # # test globalmodel
-        # for i in range(self.num_clusters):
-        #     for client in self.clusters[i]:
-        #         self.model_clusters[i] = self.aggregate_parameters(
-        #             client_models={
-        #                 client.id: client.model for client in self.clusters[i]
-        #             }
-        #         )
-        # for i in range(self.num_clusters):
-        #     for client in self.clusters[i]:
-        #         client.load_model_weights(model_dict=self.model_clusters[i])
-        #         client.test()
-
         print("Total Time cost:", time.time() - self.start_time)
         self.save_stuts()
 
@@ -376,7 +355,11 @@ class ServerFedFCM(object):
 
         self.num_clusters = args.num_clusters
         self.n_comp = args.n_comp
+        self.degree_of_fuzziness = args.degree_of_fuzziness
         self.cluster_based_on = args.cluster_based_on
+        self.fuzzy_ratio = args.fuzzy_ratio
+        self.fuzzy_agg_type = args.fuzzy_agg_type
+        self.fuzzy_add_global_model_epoch = args.fuzzy_add_global_model_epoch
 
         self.model = None
         self.clients = []
@@ -397,9 +380,60 @@ class ServerFedFCM(object):
         return model
 
     def aggregate_parameters(self, client_models, fcm_labels):
-        # TODO: FCMで，クライアントがそのクラスタに属する確率を踏まえて集約を行う
+        # クラスターモデルの集約
         # 具体的には((i番目のクライアントがAのクラスタに属する確率)/(Aのクラスタに属する確率の和))*i番目のクライアントのパラメータを足し合わせる
+        for i in range(self.num_clusters):
+            sum_prob = 0
+            for j in range(self.num_clients):
+                sum_prob += fcm_labels[j][i]
+            cluster_model_dict = {}
+            for j in range(self.num_clients):
+                # client_models[j]はj番目のクライアントのモデルのOrderedDict
+                # cluster_model_dictにはj番目のクライアントのモデルのOrderedDictの各valueにfcm_labels[j][i]をかけたものを足し合わせたものを格納する
+                for k in client_models[j].keys():
+                    if k in cluster_model_dict:
+                        cluster_model_dict[k] += (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+                    else:
+                        cluster_model_dict[k] = (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+            self.model_clusters[i] = cluster_model_dict
 
+        # クライアントモデルの更新
+        # 具体的には，各クラスタに属する確率*各クラスタのパラメータを足し合わせたモデルにfuzzy-ratio，
+        # グローバルモデルに1-fuzzy_ratioで重み付けしたものを足し合わせたモデルをクライアントにロードする
+        global_dict = {}
+        for k in client_models[0].keys():
+            global_dict[k] = torch.stack(
+                [client_models[i][k].float() for i in range(len(client_models))],
+                0,
+            ).sum(0)
+        for i in range(self.num_clients):
+            tmp_model_dict = {}
+            for j in range(self.num_clusters):
+                for k in self.model_clusters[j].keys():
+                    if k in tmp_model_dict:
+                        tmp_model_dict[k] += (
+                            self.model_clusters[j][k] * fcm_labels[i][j]
+                        )
+                    else:
+                        tmp_model_dict[k] = self.model_clusters[j][k] * fcm_labels[i][j]
+            new_model_dict = OrderedDict(
+                {
+                    k: tmp_model_dict[k] * self.fuzzy_ratio
+                    + global_dict[k] * (1 - self.fuzzy_ratio)
+                    for k in tmp_model_dict.keys()
+                }
+            )
+            self.clients[i].load_model_weights(model_dict=new_model_dict)
+
+    def aggregate_parameters2(self, client_models, fcm_labels):
+        # グローバルテストの精度を実際の環境で測定することはできないため，使えない手法
+
+        # クラスターモデルの集約
+        # 具体的には((i番目のクライアントがAのクラスタに属する確率)/(Aのクラスタに属する確率の和))*i番目のクライアントのパラメータを足し合わせる
         for i in range(self.num_clusters):
             sum_prob = 0
             for j in range(self.num_clients):
@@ -418,6 +452,132 @@ class ServerFedFCM(object):
                             client_models[j][k] * fcm_labels[j][i] / sum_prob
                         )
             self.model_clusters[i] = cluster_model_dict
+
+        # クライアントモデルの更新
+        # クラスターモデル * (1 - fuzzy_ratio) + (各クラスタに属する確率*各クラスタのパラメータを足し合わせたモデル) * fuzzy-ratio，
+        for i in range(self.num_clients):
+            tmp_model_dict = {}
+            tmp_cluster_model_dict = copy.deepcopy(
+                self.model_clusters[np.argmax(fcm_labels[i])]
+            )
+            for j in range(self.num_clusters):
+                for k in self.model_clusters[j].keys():
+                    if k in tmp_model_dict:
+                        tmp_model_dict[k] += (
+                            self.model_clusters[j][k] * fcm_labels[i][j]
+                        )
+                    else:
+                        tmp_model_dict[k] = self.model_clusters[j][k] * fcm_labels[i][j]
+            new_model_dict = OrderedDict(
+                {
+                    k: tmp_model_dict[k] * self.fuzzy_ratio
+                    + tmp_cluster_model_dict[k] * (1 - self.fuzzy_ratio)
+                    for k in tmp_model_dict.keys()
+                }
+            )
+            self.clients[i].load_model_weights(model_dict=new_model_dict)
+
+    def aggregate_parameters3(self, client_models, fcm_labels, epoch):
+        # クラスターモデルの集約
+        # 具体的には((i番目のクライアントがAのクラスタに属する確率)/(Aのクラスタに属する確率の和))*i番目のクライアントのパラメータを足し合わせる
+        for i in range(self.num_clusters):
+            sum_prob = 0
+            for j in range(self.num_clients):
+                sum_prob += fcm_labels[j][i]
+            cluster_model_dict = {}
+            for j in range(self.num_clients):
+                # client_models[j]はj番目のクライアントのモデルのOrderedDict
+                # cluster_model_dictにはj番目のクライアントのモデルのOrderedDictの各valueにfcm_labels[j][i]をかけたものを足し合わせたものを格納する
+                for k in client_models[j].keys():
+                    if k in cluster_model_dict:
+                        cluster_model_dict[k] += (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+                    else:
+                        cluster_model_dict[k] = (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+            self.model_clusters[i] = cluster_model_dict
+
+        # クライアントモデルの更新
+        # 具体的には，各クラスタに属する確率*各クラスタのパラメータを足し合わせたモデルにfuzzy-ratio，
+        # グローバルモデルに1-fuzzy_ratioで重み付けしたものを足し合わせたモデルをクライアントにロードする
+        if epoch < self.fuzzy_add_global_model_epoch:
+            fuzzy_ratio = self.fuzzy_ratio
+        else:
+            fuzzy_ratio = 1.0
+        global_dict = {}
+        for k in client_models[0].keys():
+            global_dict[k] = torch.stack(
+                [client_models[i][k].float() for i in range(len(client_models))],
+                0,
+            ).sum(0)
+        for i in range(self.num_clients):
+            tmp_model_dict = {}
+            for j in range(self.num_clusters):
+                for k in self.model_clusters[j].keys():
+                    if k in tmp_model_dict:
+                        tmp_model_dict[k] += (
+                            self.model_clusters[j][k] * fcm_labels[i][j]
+                        )
+                    else:
+                        tmp_model_dict[k] = self.model_clusters[j][k] * fcm_labels[i][j]
+            new_model_dict = OrderedDict(
+                {
+                    k: tmp_model_dict[k] * fuzzy_ratio
+                    + global_dict[k] * (1 - fuzzy_ratio)
+                    for k in tmp_model_dict.keys()
+                }
+            )
+            self.clients[i].load_model_weights(model_dict=new_model_dict)
+
+    def aggregate_parameters4(self, client_models, fcm_labels):
+        # グローバルテストの精度を実際の環境で測定することはできないため，使えない手法
+
+        # クラスターモデルの集約
+        # 具体的には((i番目のクライアントがAのクラスタに属する確率)/(Aのクラスタに属する確率の和))*i番目のクライアントのパラメータを足し合わせる
+        for i in range(self.num_clusters):
+            sum_prob = 0
+            for j in range(self.num_clients):
+                sum_prob += fcm_labels[j][i]
+            cluster_model_dict = {}
+            for j in range(self.num_clients):
+                # client_models[j]はj番目のクライアントのモデルのOrderedDict
+                # client_moded_dictにはj番目のクライアントのモデルのOrderedDictの各valueにfcm_labels[j][i]をかけたものを足し合わせたものを格納する
+                for k in client_models[j].keys():
+                    if k in cluster_model_dict:
+                        cluster_model_dict[k] += (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+                    else:
+                        cluster_model_dict[k] = (
+                            client_models[j][k] * fcm_labels[j][i] / sum_prob
+                        )
+            self.model_clusters[i] = cluster_model_dict
+
+        # クライアントモデルの更新
+        # クラスターモデル * (1 - fuzzy_ratio) + (各クラスタに属する確率*各クラスタのパラメータを足し合わせたモデル) * fuzzy-ratio
+        for i in range(self.num_clients):
+            tmp_model_dict = {}
+            tmp_cluster_model_dict = copy.deepcopy(
+                self.model_clusters[np.argmax(fcm_labels[i])]
+            )
+            for j in range(self.num_clusters):
+                for k in self.model_clusters[j].keys():
+                    if k in tmp_model_dict:
+                        tmp_model_dict[k] += (
+                            self.model_clusters[j][k] * fcm_labels[i][j]
+                        )
+                    else:
+                        tmp_model_dict[k] = self.model_clusters[j][k] * fcm_labels[i][j]
+            new_model_dict = OrderedDict(
+                {
+                    k: tmp_model_dict[k] * self.fuzzy_ratio
+                    + tmp_cluster_model_dict[k] * (1 - self.fuzzy_ratio)
+                    for k in tmp_model_dict.keys()
+                }
+            )
+            self.clients[i].load_model_weights(model_dict=new_model_dict)
 
     def save_stuts(self):
         # self.clientsのself.train_loss, self.test_loss, self.train_acc, self.test_acc, self.test_macro_f1を保存する
@@ -479,7 +639,11 @@ class ServerFedFCM(object):
                 w_clients_comp = PCA(
                     n_components=self.n_comp, random_state=0, svd_solver="randomized"
                 ).fit_transform(w_clients_flatten)
-                fcm = FCM(n_clusters=self.num_clusters, random_state=0)
+                fcm = FCM(
+                    n_clusters=self.num_clusters,
+                    random_state=0,
+                    m=self.degree_of_fuzziness,
+                )
                 fcm.fit(w_clients_comp)
                 fcm_labels = fcm.u
 
@@ -497,29 +661,23 @@ class ServerFedFCM(object):
                 w_hidden_comp = PCA(
                     n_components=self.n_comp, random_state=0, svd_solver="randomized"
                 ).fit_transform(w_hidden_list)
-                fcm = FCM(n_clusters=self.num_clusters, random_state=0)
+                fcm = FCM(
+                    n_clusters=self.num_clusters,
+                    random_state=0,
+                    m=self.degree_of_fuzziness,
+                )
                 fcm.fit(w_hidden_comp)
                 fcm_labels = fcm.u
 
             # aggregate
-            self.aggregate_parameters(w_list, fcm_labels)
-
-            # クライアントごとにパラメータを更新
-            # TODO: FCMで，クライアントごとにパラメータを更新する
-            # 具体的には，各クラスタに属する確率*各クラスタのパラメータを足し合わせる
-            for i in range(self.num_clients):
-                new_model_dict = {}
-                for j in range(self.num_clusters):
-                    for k in self.model_clusters[j].keys():
-                        if k in new_model_dict:
-                            new_model_dict[k] += (
-                                self.model_clusters[j][k] * fcm_labels[i][j]
-                            )
-                        else:
-                            new_model_dict[k] = (
-                                self.model_clusters[j][k] * fcm_labels[i][j]
-                            )
-                self.clients[i].load_model_weights(model_dict=new_model_dict)
+            if self.fuzzy_agg_type == 1:
+                self.aggregate_parameters(w_list, fcm_labels)
+            elif self.fuzzy_agg_type == 2:
+                self.aggregate_parameters2(w_list, fcm_labels)
+            elif self.fuzzy_agg_type == 3:
+                self.aggregate_parameters3(w_list, fcm_labels, i)
+            elif self.fuzzy_agg_type == 4:
+                self.aggregate_parameters4(w_list, fcm_labels)
 
             # test
             print()
@@ -541,47 +699,6 @@ class ServerFedFCM(object):
                     f"Client {client.id} global test loss: {g_test_loss:.4f}, global test acc: {g_test_acc:.4f}, global test macro f1: {g_test_macro_f1:.4f}"
                 )
                 print()
-
-        # #
-        # # test globalmodel
-        # # クラスタリング
-        # w_list = [client.send_model_weights() for client in self.clients]
-        # w_clients_flatten = weights_flatten(w_list)
-        # w_clients_flatten = sklearn.preprocessing.normalize(
-        #     w_clients_flatten, norm="l2", axis=0
-        # )
-
-        # # Fuzzy C-Means
-        # w_clients_comp = PCA(
-        #     n_components=2, random_state=0, svd_solver="randomized"
-        # ).fit_transform(w_clients_flatten)
-        # fcm = FCM(n_clusters=self.num_clusters, random_state=0)
-        # fcm.fit(w_clients_comp)
-        # fcm_labels = fcm.u
-
-        # # aggregate
-        # self.aggregate_parameters(w_list, fcm_labels)
-
-        # # クライアントごとにパラメータを更新
-        # # TODO: FCMで，クライアントごとにパラメータを更新する
-        # # 具体的には，各クラスタに属する確率*各クラスタのパラメータを足し合わせる
-        # for i in range(self.num_clients):
-        #     new_model_dict = {}
-        #     for j in range(self.num_clusters):
-        #         for k in self.model_clusters[j].keys():
-        #             if k in new_model_dict:
-        #                 new_model_dict[k] += (
-        #                     self.model_clusters[j][k] * fcm_labels[i][j]
-        #                 )
-        #             else:
-        #                 new_model_dict[k] = (
-        #                     self.model_clusters[j][k] * fcm_labels[i][j]
-        #                 )
-        #     self.clients[i].load_model_weights(model_dict=new_model_dict)
-
-        # # test
-        # for client in self.clients:
-        #     client.test()
 
         print("Total Time cost:", time.time() - self.start_time)
         self.save_stuts()
