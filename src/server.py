@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import pickle
 import random
 import time
 from collections import OrderedDict, defaultdict
@@ -366,6 +367,9 @@ class ServerFedFCM(object):
         self.fcm_labels = []
         self.model_clusters = [None for _ in range(self.num_clusters)]
 
+        self.past_models = []
+        self.past_labels = []
+
         self.start_time = time.time()  # インスタンス生成時刻
 
     def set_clients(self, clientObj):
@@ -584,7 +588,7 @@ class ServerFedFCM(object):
 
         # './result/FedAVG_<yyyymmddss>'のディレクトリを作成
         result_dir = os.path.join(
-            f'./result/FedFCM_{self.dataset}{time.strftime("%Y-%m-%d-%H-%M", time.localtime(self.start_time))}'
+            f'./result/FedFCM_{self.dataset}{time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(self.start_time))}'
         )
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
@@ -606,6 +610,11 @@ class ServerFedFCM(object):
         # argsをconfig.jsonファイルに保存
         with open(os.path.join(result_dir, "config.json"), "w") as f:
             json.dump(vars(self.args), f, indent=4)
+
+        # past_modelsをpickleファイルに保存
+        with open(os.path.join(result_dir, "past_models_and_labels.pkl"), "wb") as f:
+            pickle.dump(self.past_models, f)
+            pickle.dump(self.past_labels, f)
 
     def train(self):
         # Set seed
@@ -631,6 +640,7 @@ class ServerFedFCM(object):
             w_list = [client.send_model_weights() for client in self.clients]
             if self.cluster_based_on == "weight":
                 w_clients_flatten = weights_flatten(w_list)
+                self.past_models.append(w_clients_flatten)
                 w_clients_flatten = sklearn.preprocessing.normalize(
                     w_clients_flatten, norm="l2", axis=0
                 )
@@ -646,6 +656,7 @@ class ServerFedFCM(object):
                 )
                 fcm.fit(w_clients_comp)
                 fcm_labels = fcm.u
+                self.past_labels.append(fcm_labels)
 
             elif self.cluster_based_on == "hidden":
                 w_hidden_list = []
@@ -653,6 +664,7 @@ class ServerFedFCM(object):
                     w_hidden_list.append(w_list[i]["fc1.weight"])
                 w_hidden_list = np.array(w_hidden_list)
                 w_hidden_list = w_hidden_list.reshape(w_hidden_list.shape[0], -1)
+                self.past_models.append(w_hidden_list)
                 w_hidden_list = sklearn.preprocessing.normalize(
                     w_hidden_list, norm="l2", axis=0
                 )
@@ -668,6 +680,7 @@ class ServerFedFCM(object):
                 )
                 fcm.fit(w_hidden_comp)
                 fcm_labels = fcm.u
+                self.past_labels.append(fcm_labels)
 
             # aggregate
             if self.fuzzy_agg_type == 1:
